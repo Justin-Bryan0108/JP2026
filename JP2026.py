@@ -44,7 +44,7 @@ days_options = [
 # --- 4. 側邊欄設定 ---
 with st.sidebar:
     st.header("⚙️ 管理面板")
-    app_mode = st.radio("功能模式", ["📅 每日行程", "💰 預算管理", "🏨 住宿資訊"])
+    app_mode = st.radio("功能模式", ["📅 每日行程"])
     
     st.divider()
     
@@ -138,24 +138,5 @@ if app_mode == "📅 每日行程":
             st.link_button("🚀 開啟 Google Maps 導航", nav_url, use_container_width=True, type="primary")
         else:
             st.info("請在左側填寫景點以開啟地圖功能。")
-
-# --- 6. 預算與住宿頁面 ---
-elif app_mode == "💰 預算管理":
-    st.title("💰 預算與開銷統計")
-    budget_df = load_data_from_gs("預算")
-    if not budget_df.empty:
-        updated_budget = st.data_editor(budget_df, num_rows="dynamic", use_container_width=True)
-        if st.button("儲存預算分頁"):
-            conn.update(worksheet="預算", data=updated_budget)
-            st.success("預算表已同步！")
-
-elif app_mode == "🏨 住宿資訊":
-    st.title("🏨 飯店訂房資訊")
-    hotel_df = load_data_from_gs("住宿")
-    if not hotel_df.empty:
-        updated_hotel = st.data_editor(hotel_df, num_rows="dynamic", use_container_width=True)
-        if st.button("儲存住宿分頁"):
-            conn.update(worksheet="住宿", data=updated_hotel)
-            st.success("住宿資訊已同步！")
 
 st.caption("2026 Japan Trip Planner - 已連線至雲端")
