@@ -35,7 +35,7 @@ def save_all_to_gs(all_data_dict, sheet_name="行程"):
     except Exception as e:
         st.error(f"儲存失敗：{e}")
 
-# --- 3. 初始化行程資料與狀態 ---
+# --- 3. 初始化行程日期 ---
 days_options = [
     "Day 1: 02/11(三)", "Day 2: 02/12(四)", "Day 3: 02/13(五)",
     "Day 4: 02/14(六)", "Day 5: 02/15(日)", "Day 6: 02/16(一)", "Day 7: 02/17(二)"
@@ -44,7 +44,7 @@ days_options = [
 # --- 4. 側邊欄設定 ---
 with st.sidebar:
     st.header("⚙️ 管理面板")
-    app_mode = st.radio("功能模式", ["📅 每日行程"])
+    app_mode = st.radio("功能模式", ["📅 每日行程", "💰 預算管理", "🏨 住宿資訊"])
     
     st.divider()
     
@@ -63,7 +63,6 @@ with st.sidebar:
 
 # --- 5. 邏輯處理：每日行程 ---
 if app_mode == "📅 每日行程":
-    # 確保 session_state 裡面有資料
     if 'all_days_data' not in st.session_state:
         with st.spinner('同步雲端行程中...'):
             saved_df = load_data_from_gs("行程")
@@ -71,13 +70,11 @@ if app_mode == "📅 每日行程":
             for day in days_options:
                 if not saved_df.empty and '日期分類' in saved_df.columns and day in saved_df['日期分類'].values:
                     day_data = saved_df[saved_df['日期分類'] == day].drop(columns=['日期分類'])
-                    # 確保有序號欄位供排序使用
                     if "序號" not in day_data.columns:
                         day_data.insert(0, "序號", range(1, len(day_data) + 1))
                     st.session_state.all_days_data[day] = day_data.astype(str)
                 else:
-                    # 若無資料，給予預設空行
-                    st.session_state.all_days_data[day] = pd.DataFrame([{"序號": "1", "時間": "", "景點": "", "交通備註": ""}]).astype(str)
+                    st.session_state.all_days_data[day] = pd.DataFrame([{"序號": "1", "時間": "", "景點": "", "備註": ""}]).astype(str)
 
     st.title(f"✈️ {selected_day}")
     col_left, col_right = st.columns([1.6, 1], gap="medium")
@@ -86,7 +83,6 @@ if app_mode == "📅 每日行程":
         st.subheader("📝 行程清單")
         curr_df = st.session_state.all_days_data[selected_day]
         
-        # 使用 data_editor 進行編輯
         edited_df = st.data_editor(
             curr_df, 
             num_rows="dynamic", 
@@ -95,16 +91,15 @@ if app_mode == "📅 每日行程":
                 "序號": st.column_config.NumberColumn("🔢 序號", width="small"),
                 "時間": st.column_config.TextColumn("⏰ 時間"),
                 "景點": st.column_config.TextColumn("📍 景點"),
-                "交通備註": st.column_config.TextColumn("🚌 備註")
+                "備註": st.column_config.TextColumn("🚌 備註")
             }
         )
 
         c1, c2 = st.columns(2)
         if c1.button("🪄 依照序號排序並暫存"):
-            # 轉換為數字以進行正確排序
+            # 修正：確保排序前排除 None 或非法字元
             edited_df["序號"] = pd.to_numeric(edited_df["序號"], errors='coerce').fillna(99)
             sorted_df = edited_df.sort_values(by="序號").reset_index(drop=True)
-            # 重新整排序號為漂亮連號
             sorted_df["序號"] = range(1, len(sorted_df) + 1)
             st.session_state.all_days_data[selected_day] = sorted_df.astype(str)
             st.rerun()
@@ -115,28 +110,48 @@ if app_mode == "📅 每日行程":
 
     with col_right:
         st.subheader("🗺️ 路線導航")
-        valid_places = [p for p in edited_df["景點"].tolist() if str(p).strip() != ""]
+        # 修正重點：嚴格過濾掉空值、None 字串與空白字元
+        valid_places = [str(p).strip() for p in edited_df["景點"].tolist() if p and str(p).strip().lower() != "none" and str(p).strip() != ""]
         
         if valid_places:
             origin = st.selectbox("📍 起點", ["我的位置"] + valid_places)
             destination = st.selectbox("🏁 終點", valid_places, index=len(valid_places)-1)
             
-            # 安全編碼地點字串
-            dest_q = urllib.parse.quote(destination)
-            origin_q = urllib.parse.quote(origin)
-            
-            # 地圖預覽 Embed
-            map_url = f"https://www.google.com/maps?q={dest_q}&output=embed&hl=zh-TW"
-            components.html(f'<iframe width="100%" height="350" frameborder="0" src="{map_url}"></iframe>', height=360)
-            
-            # 修正後的導航連結生成
-            if origin == "我的位置":
-                nav_url = f"https://www.google.com/maps/dir/?api=1&destination={dest_q}&travelmode={transport_mode}"
-            else:
-                nav_url = f"https://www.google.com/maps/dir/?api=1&origin={origin_q}&destination={dest_q}&travelmode={transport_mode}"
-            
-            st.link_button("🚀 開啟 Google Maps 導航", nav_url, use_container_width=True, type="primary")
+            if destination:
+                dest_q = urllib.parse.quote(str(destination))
+                origin_q = urllib.parse.quote(str(origin))
+                
+                # 地圖預覽 (Embed 格式)
+                simple_map_url = f"https://www.google.com/maps?q={dest_q}&output=embed&hl=zh-TW"
+                components.html(f'<iframe width="100%" height="350" frameborder="0" src="{simple_map_url}"></iframe>', height=360)
+                
+                # 導航連結
+                if origin == "我的位置":
+                    nav_url = f"https://www.google.com/maps/dir/?api=1&destination={dest_q}&travelmode={transport_mode}"
+                else:
+                    nav_url = f"https://www.google.com/maps/dir/?api=1&origin={origin_q}&destination={dest_q}&travelmode={transport_mode}"
+                
+                st.link_button("🚀 開啟 Google Maps 導航", nav_url, use_container_width=True, type="primary")
         else:
-            st.info("請在左側填寫景點以開啟地圖功能。")
+            st.info("💡 請在左側「景點」欄位填寫地點（如：淺草寺），系統將自動開啟地圖功能。")
+
+# --- 6. 預算與住宿頁面 ---
+elif app_mode == "💰 預算管理":
+    st.title("💰 預算與開銷統計")
+    budget_df = load_data_from_gs("預算")
+    if not budget_df.empty:
+        updated_budget = st.data_editor(budget_df, num_rows="dynamic", use_container_width=True)
+        if st.button("儲存預算分頁"):
+            conn.update(worksheet="預算", data=updated_budget)
+            st.success("預算表已同步！")
+
+elif app_mode == "🏨 住宿資訊":
+    st.title("🏨 飯店訂房資訊")
+    hotel_df = load_data_from_gs("住宿")
+    if not hotel_df.empty:
+        updated_hotel = st.data_editor(hotel_df, num_rows="dynamic", use_container_width=True)
+        if st.button("儲存住宿分頁"):
+            conn.update(worksheet="住宿", data=updated_hotel)
+            st.success("住宿資訊已同步！")
 
 st.caption("2026 Japan Trip Planner - 已連線至雲端")
