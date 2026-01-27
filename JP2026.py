@@ -1,112 +1,133 @@
 import streamlit as st
+import pandas as pd
+import streamlit.components.v1 as components
+import urllib.parse
+from streamlit_gsheets import GSheetsConnection
 
-# 設定網頁標題與圖示
-st.set_page_config(page_title="2026 東京家族旅行", layout="wide", page_icon="🗼")
+# --- 1. 網頁基本配置 ---
+st.set_page_config(page_title="2026 日本旅遊雲端版", layout="wide", page_icon="🇯🇵")
 
-# 標題
-st.title("🇯🇵 2026 東京 7 天 6 夜 家族旅行行程表")
-st.caption("📅 日期：2026.02.11 - 2026.02.17")
+# --- 2. 建立 Google Sheets 連接 ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 側邊欄：住宿與重要資訊
-with st.sidebar:
-    st.header("🏨 住宿安排")
-    st.info("**Day 1-4 (3晚):**\n\n銀座 | 相鐵 Fresa Inn 銀座三丁目")
-    st.info("**Day 4-7 (3晚):**\n\n新宿 | Tokyu Stay 新宿")
-    st.divider()
-    st.header("📌 重要備註")
-    st.warning("D1 (2/11) 為日本國定假日，銀座有步行者天國。")
-    st.warning("D5 (2/15) 週日河口湖回程巴士易塞車。")
+def load_data_from_gs():
+    """從 Google Sheets 讀取最新資料"""
+    try:
+        df = conn.read(ttl=0)
+        return df.fillna("").astype(str)
+    except Exception as e:
+        st.error(f"讀取資料失敗，請檢查 Secrets 或試算表權限。錯誤: {e}")
+        return pd.DataFrame(columns=["日期分類", "時間", "景點", "交通方式"])
 
-# 建立分頁
-tabs = st.tabs(["D1 羽田/銀座", "D2 淺草/下町", "D3 鎌倉/江之島", "D4 移宿/原宿", "D5 河口湖/富士山", "D6 代官山/澀谷", "D7 新宿/返程"])
+def save_data_to_gs(all_data_dict):
+    """將所有行程資料合併後更新回雲端"""
+    combined_list = []
+    for day, df in all_data_dict.items():
+        temp_df = df.copy()
+        temp_df['日期分類'] = day
+        combined_list.append(temp_df)
+    
+    final_df = pd.concat(combined_list, ignore_index=True)
+    conn.update(data=final_df)
 
-# 行程資料內容
-itinerary_content = [
-    # D1
-    """
-    ### Day 1：抵達與銀座深度遊
-    * **04:00** 抵達羽田機場 (HND)
-    * **06:40** 抵達銀座飯店寄放行李
-    * **07:15** Starbucks Reserve 典藏門市早餐
-    * **09:00** 東京車站丸之內站房散步
-    * **11:00** 西銀座百貨 3coins / 11:30 銀座三越
-    * **12:00** **銀座步行者天國** (假日限定體驗)
-    * **13:00** Uniqlo / 無印良品 銀座旗艦店
-    * **15:30** GINZA SIX / 蔦屋書店
-    * **17:30** 六本木之丘夜景 / 櫸木坂燈飾
-    """,
-    # D2
-    """
-    ### Day 2：淺草文化與下町探索
-    * *(本日起點：銀座飯店)*
-    * **09:30** 淺草寺 / 雷門參拜
-    * **11:30** 隅田川畔 (拍攝晴空塔與黃金泡沫)
-    * **12:00** **東京晴空塔 (Skytree)** & Solamachi 午餐
-    * **15:30** 上野恩賜公園漫步
-    * **16:30** 上野阿美橫丁採買
-    * **18:00** 秋葉原電器街 / 動漫聖地
-    """,
-    # D3
-    """
-    ### Day 3：鎌倉古都與湘南海岸
-    * *(本日起點：銀座飯店 → 新橋站搭 JR)*
-    * **09:30** 鎌倉小町通商店街
-    * **10:00** 鶴岡八幡宮
-    * **12:00** 鎌倉站周邊午餐 (吻仔魚飯)
-    * **13:30** **鎌倉高校前** (灌籃高手平交道)
-    * **15:00** 江之島大橋跨海步行
-    * **15:30** 江之島仲見世通 / 章魚仙貝
-    * **17:15** 江之島海蠟燭 (Sea Candle) 點燈
-    """,
-    # D4
-    """
-    ### Day 4：移宿新宿與潮流購物
-    * *(本日起點：銀座飯店退房)*
-    * **上午** 搭乘丸之內線前往新宿，入住 Tokyu Stay 新宿
-    * **12:00** 新宿站周邊吃飯繞繞 (伊勢丹等)
-    * **下午** **原宿潮流購物之旅**
-        * 竹下通 / 裹原宿潮牌店
-        * 表參道鞋款採買
-    """,
-    # D5
-    """
-    ### Day 5：富士山河口湖絕景
-    * *(本日起點：新宿飯店 → 新宿 Busta)*
-    * **08:00** 搭乘高速巴士前往河口湖
-    * **全日 河口湖周邊行程**
-        * 新倉山淺間公園 (五重塔)
-        * 不動茶屋餺飥麵
-        * 天上山公園纜車 / 遊覽船
-        * 大石公園 (湖畔富士山景)
-    * **18:30** 搭乘巴士返回新宿 (注意週日塞車)
-    """,
-    # D6
-    """
-    ### Day 6：代官山質感與澀谷地標
-    * *(本日起點：新宿飯店)*
-    * **09:30** 前往代官山
-    * **全日 代官山、澀谷一代遊覽**
-        * 代官山 T-Site (蔦屋書店)
-        * 澀谷站前十字路口 / 八公像
-        * **SHIBUYA SKY** 展望台 (建議預約夕陽時段)
-    """,
-    # D7
-    """
-    ### Day 7：新宿周邊與返程
-    * *(本日起點：新宿飯店退房寄物)*
-    * **上午** 飯店周圍繞繞 / 新宿御苑散步
-    * **下午** 新宿東口最後採買補貨
-    * **16:00** 新宿站搭乘 **Narita Express (N'EX)**
-    * **17:30** 抵達成田機場 (NRT)
-    * **20:00** 班機起飛返台
-    """
+# --- 3. 初始化行程資料 ---
+days_options = [
+    "Day 1: 2026/02/11(三)", "Day 2: 2026/02/12(四)", "Day 3: 2026/02/13(五)",
+    "Day 4: 2026/02/14(六)", "Day 5: 2026/02/15(日)", "Day 6: 2026/02/16(一)", "Day 7: 2026/02/17(二)"
 ]
 
-# 將資料填入分頁
-for i, tab in enumerate(tabs):
-    with tab:
-        st.markdown(itinerary_content[i])
-        st.divider()
+if 'all_days_data' not in st.session_state:
+    with st.spinner('正在同步雲端行程...'):
+        saved_df = load_data_from_gs()
+        st.session_state.all_days_data = {}
+        for day in days_options:
+            if not saved_df.empty and day in saved_df['日期分類'].values:
+                day_data = saved_df[saved_df['日期分類'] == day].drop(columns=['日期分類'])
+                st.session_state.all_days_data[day] = day_data.astype(str)
+            else:
+                st.session_state.all_days_data[day] = pd.DataFrame([{"時間": "", "景點": "", "交通方式": ""}]).astype(str)
 
-# 頁尾
-st.success("祝全家人有一趟美好的東京之旅！✈️🇯🇵")
+# --- 4. 側邊欄設定 ---
+with st.sidebar:
+    st.header("📅 行程切換")
+    selected_day = st.selectbox("切換日期", days_options)
+    
+    st.divider()
+    st.markdown("### 🗺️ 導航設定")
+    transport_mode = st.selectbox(
+        "導航模式", 
+        ["transit", "walking", "driving"], 
+        format_func=lambda x: {"transit":"大眾運輸", "walking":"走路", "driving":"開車"}[x]
+    )
+    
+    if st.button("🔄 重新載入雲端資料"):
+        st.cache_data.clear()
+        if 'all_days_data' in st.session_state:
+            del st.session_state.all_days_data
+        st.rerun()
+
+st.title(f"✈️ {selected_day}")
+
+# 分欄：左邊編輯區，右邊地圖區
+col_left, col_right = st.columns([1.5, 1], gap="medium")
+
+with col_left:
+    st.subheader("📝 行程清單")
+    with st.form(key=f"form_{selected_day}"):
+        edited_df = st.data_editor(
+            st.session_state.all_days_data[selected_day],
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "時間": st.column_config.TextColumn("⏰ 時間", width="small"),
+                "景點": st.column_config.TextColumn("📍 景點"),
+                "交通方式": st.column_config.TextColumn("🚌 備註")
+            }
+        )
+        
+        if st.form_submit_button("☁️ 儲存並更新至雲端"):
+            st.session_state.all_days_data[selected_day] = edited_df
+            save_data_to_gs(st.session_state.all_days_data)
+            st.success("✅ 同步成功！")
+            st.balloons()
+
+with col_right:
+    st.subheader("🗺️ 路線導航")
+    current_df = st.session_state.all_days_data[selected_day]
+    # 取得當天所有填寫過的景點名稱
+    valid_places = [p for p in current_df["景點"].tolist() if str(p).strip() != ""]
+    
+    if len(valid_places) >= 1:
+        # 1. 選擇起點與終點
+        c1, c2 = st.columns(2)
+        with c1:
+            origin = st.selectbox("📍 起點：", ["我的位置"] + valid_places, index=0)
+        with c2:
+            # 預設終點選取最後一個輸入的景點
+            destination = st.selectbox("🏁 終點：", valid_places, index=len(valid_places)-1)
+        
+        # 2. 編碼文字避免亂碼
+        dest_q = urllib.parse.quote(destination)
+        
+        # 3. 顯示地圖預覽 (顯示終點位置)
+        map_url = f"https://www.google.com/maps?q={dest_q}&output=embed&hl=zh-TW"
+        components.html(
+            f'<iframe width="100%" height="400" frameborder="0" src="{map_url}"></iframe>', 
+            height=410
+        )
+        
+        # 4. 產生 Google Maps 導航連結
+        if origin == "我的位置":
+            # 起點為目前位置的導航連結
+            nav_url = f"https://www.google.com/maps/dir/?api=1&destination={dest_q}&travelmode={transport_mode}"
+        else:
+            origin_q = urllib.parse.quote(origin)
+            # A 點到 B 點的導航連結
+            nav_url = f"https://www.google.com/maps/dir/?api=1&origin={origin_q}&destination={dest_q}&travelmode={transport_mode}"
+        
+        st.link_button(f"🚀 開啟 Google Maps 路線規劃", nav_url, use_container_width=True, type="primary")
+        st.caption(f"目前導航設定：從 {origin} 往 {destination} ({ {'transit':'大眾運輸', 'walking':'走路', 'driving':'開車'}[transport_mode] })")
+    else:
+        st.info("請在左側表格填入「景點」名稱，即可開啟地圖與導航功能。")
+
+st.caption("2026 Japan Trip Planner - 已連線至雲端試算表")
